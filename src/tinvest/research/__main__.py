@@ -1,4 +1,4 @@
-"""Collect the research universe and run distribution then volume analysis."""
+"""Collect the research universe and run distribution, volume, then correlation."""
 
 from __future__ import annotations
 
@@ -14,11 +14,12 @@ matplotlib.use("Agg", force=True)
 
 from dotenv import load_dotenv
 
+from tinvest.analytics.correlation import CorrelationConfig, ReturnCorrelation
 from tinvest.analytics.distribution import DistributionConfig, ReturnDistribution
 from tinvest.analytics.volume import VolumeConfig, VolumeImpact
 from tinvest.common.paths import project_root
 from tinvest.research.config import load_research_settings
-from tinvest.research.panel import load_panel
+from tinvest.research.panel import equal_weight_market, load_panel
 from tinvest.research.universe import build_universe, universe_path
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,46 @@ def main() -> None:
             volume_summary.n_tickers,
             volume_summary.spearman_median,
         )
+
+    market = equal_weight_market(panel)
+    correlation = ReturnCorrelation(
+        CorrelationConfig(
+            heatmap_path=figures / "task3_corr_heatmap.png",
+            rolling_path=figures / "task3_rolling_corr.png",
+            regimes_path=figures / "task3_regime_bars.png",
+        )
+    )
+    correlation.prepare(panel, market)
+    corr_tables = correlation.analyze()
+    corr_summary = correlation.get_summary()
+    correlation.plot()
+
+    corr_tables.pairs.to_csv(output / "task3_pairs.csv", index=False, encoding="utf-8-sig")
+    corr_tables.rolling.to_csv(output / "task3_rolling.csv", index=False, encoding="utf-8-sig")
+    corr_tables.regimes.to_csv(output / "task3_regimes.csv", index=False, encoding="utf-8-sig")
+    corr_tables.sector_corr.to_csv(
+        output / "task3_sector_corr.csv", index=False, encoding="utf-8-sig"
+    )
+    corr_tables.regression.to_csv(
+        output / "task3_corr_on_vol.csv", index=False, encoding="utf-8-sig"
+    )
+
+    logger.info(
+        "Корреляции: средняя попарная=%.4f, b=%.4f, pair_corr low/high=%.4f/%.4f, пар=%s",
+        corr_summary.mean_pair_corr if corr_summary.mean_pair_corr is not None else float("nan"),
+        corr_summary.coef_b if corr_summary.coef_b is not None else float("nan"),
+        (
+            corr_summary.mean_pair_corr_low_vol
+            if corr_summary.mean_pair_corr_low_vol is not None
+            else float("nan")
+        ),
+        (
+            corr_summary.mean_pair_corr_high_vol
+            if corr_summary.mean_pair_corr_high_vol is not None
+            else float("nan")
+        ),
+        corr_summary.n_pairs,
+    )
     logger.info("Wrote results: %s", output)
 
 

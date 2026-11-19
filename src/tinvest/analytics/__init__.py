@@ -1,4 +1,9 @@
 from tinvest.analytics.base import Analysis
+from tinvest.analytics.correlation import (
+    CorrelationConfig,
+    CorrelationSummary,
+    ReturnCorrelation,
+)
 from tinvest.analytics.distribution import (
     DistributionConfig,
     DistributionSummary,
@@ -10,9 +15,12 @@ from tinvest.analytics.volume import VolumeConfig, VolumeImpact, VolumeSummary
 
 __all__ = [
     "Analysis",
+    "CorrelationConfig",
+    "CorrelationSummary",
     "DistributionConfig",
     "DistributionSummary",
     "LinearTrend",
+    "ReturnCorrelation",
     "ReturnDistribution",
     "TrendCandlesFrame",
     "TrendConfig",
