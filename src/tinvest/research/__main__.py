@@ -1,4 +1,4 @@
-"""Collect the research universe and run distribution, volume, correlation, hypotheses."""
+"""Collect the research universe and run distribution, volume, correlation, hypotheses, forecast."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from tinvest.analytics.correlation import CorrelationConfig, ReturnCorrelation
 from tinvest.analytics.distribution import DistributionConfig, ReturnDistribution
 from tinvest.analytics.hypotheses import HypothesisConfig, ReturnHypotheses
+from tinvest.analytics.vol_forecast import VolForecastConfig, VolatilityForecast
 from tinvest.analytics.volume import VolumeConfig, VolumeImpact
 from tinvest.common.paths import project_root
 from tinvest.research.config import load_research_settings
@@ -170,6 +171,46 @@ def main() -> None:
             f"{item.median_p:.4f}" if item.median_p is not None else "nan",
             f"{item.reject_share:.4f}" if item.reject_share is not None else "nan",
         )
+
+    figures_dir = figures
+    forecast = VolatilityForecast(
+        VolForecastConfig(
+            output_dir=output,
+            roc_path=figures_dir / "task5_roc.png",
+            importance_path=figures_dir / "task5_importance.png",
+            calibration_path=figures_dir / "task5_calibration.png",
+        )
+    )
+    forecast.prepare(panel, market)
+    forecast.analyze()
+    forecast_summary = forecast.get_summary()
+    forecast.plot()
+
+    if not forecast_summary.gate_passed:
+        logger.info(
+            "Прогноз волатильности пропущен: порог данных не пройден (каталог=%s)",
+            forecast_summary.output_dir,
+        )
+    else:
+        logger.info(
+            "Прогноз волатильности: AUC constant=%.3f rv_21=%.3f logit=%.3f hgb=%.3f, "
+            "logit_beats_baseline=%s, hgb_beats_baseline=%s, positive_rate=%.3f",
+            forecast_summary.auc_constant if forecast_summary.auc_constant is not None else float("nan"),
+            forecast_summary.auc_rv_21 if forecast_summary.auc_rv_21 is not None else float("nan"),
+            forecast_summary.auc_logit if forecast_summary.auc_logit is not None else float("nan"),
+            forecast_summary.auc_hgb if forecast_summary.auc_hgb is not None else float("nan"),
+            forecast_summary.logit_beats_baseline,
+            forecast_summary.hgb_beats_baseline,
+            (
+                forecast_summary.positive_rate_test
+                if forecast_summary.positive_rate_test is not None
+                else float("nan")
+            ),
+        )
+        if not forecast_summary.hgb_beats_baseline:
+            logger.info(
+                "модель не улучшает опору на уже наблюдаемую волатильность"
+            )
 
     logger.info("Wrote results: %s", output)
 

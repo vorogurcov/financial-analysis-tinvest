@@ -9,6 +9,7 @@ dependencies = [
     "pandas",
     "pyarrow>=26.0.1",
     "python-dotenv",
+    "scikit-learn>=1.9.1",
     "scipy>=1.18.1",
     "statsmodels>=0.15.0",
     "t-tech-investments",

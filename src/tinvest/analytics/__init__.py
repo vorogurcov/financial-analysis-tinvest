@@ -16,6 +16,11 @@ from tinvest.analytics.hypotheses import (
     ReturnHypotheses,
 )
 from tinvest.analytics.trend import LinearTrend, TrendConfig, TrendSummary
+from tinvest.analytics.vol_forecast import (
+    VolForecastConfig,
+    VolForecastSummary,
+    VolatilityForecast,
+)
 from tinvest.analytics.volume import VolumeConfig, VolumeImpact, VolumeSummary
 
 __all__ = [
@@ -33,6 +38,9 @@ __all__ = [
     "TrendCandlesFrame",
     "TrendConfig",
     "TrendSummary",
+    "VolForecastConfig",
+    "VolForecastSummary",
+    "VolatilityForecast",
     "VolumeConfig",
     "VolumeImpact",
     "VolumeSummary",
