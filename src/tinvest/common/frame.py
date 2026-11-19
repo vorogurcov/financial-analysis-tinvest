@@ -7,6 +7,14 @@ import pandas as pd
 
 ColumnType = type[str] | type[int] | type[float] | type[bool] | type[datetime]
 
+_SCALAR_BY_NAME = {
+    "str": str,
+    "int": int,
+    "float": float,
+    "bool": bool,
+    "datetime": datetime,
+}
+
 
 class FrameSchemaError(ValueError):
     """Raised when a frame's columns or dtypes do not match its annotations."""
@@ -37,7 +45,14 @@ def column_schema(cls: type) -> tuple[ColumnSpec, ...]:
     return tuple(_spec(name, annotation) for name, annotation in merged.items())
 
 
+def _resolve_annotation(annotation: object) -> object:
+    if isinstance(annotation, str):
+        return _SCALAR_BY_NAME.get(annotation, annotation)
+    return annotation
+
+
 def _spec(name: str, annotation: object) -> ColumnSpec:
+    annotation = _resolve_annotation(annotation)
     if get_origin(annotation) is Literal:
         allowed = get_args(annotation)
         if not allowed or not all(isinstance(value, str) for value in allowed):
