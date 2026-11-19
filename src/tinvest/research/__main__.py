@@ -1,4 +1,4 @@
-"""Collect the research universe and run task-1 distribution analysis."""
+"""Collect the research universe and run distribution then volume analysis."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ matplotlib.use("Agg", force=True)
 from dotenv import load_dotenv
 
 from tinvest.analytics.distribution import DistributionConfig, ReturnDistribution
+from tinvest.analytics.volume import VolumeConfig, VolumeImpact
 from tinvest.common.paths import project_root
 from tinvest.research.config import load_research_settings
 from tinvest.research.panel import load_panel
@@ -70,6 +71,39 @@ def main() -> None:
         summary.highest_vol_sector_group,
         summary.base_r_squared,
     )
+
+    volume = VolumeImpact(
+        VolumeConfig(
+            figure_path=figures / "task2_abs_return_vs_volume.png",
+            lead_vol_figure_path=figures / "task2_lead_vol.png",
+            coefficients_figure_path=figures / "task2_coefficients.png",
+        )
+    )
+    volume.prepare(panel)
+    volume_tables = volume.analyze()
+    volume_summary = volume.get_summary()
+    volume.plot()
+
+    volume_tables.coefficients.to_csv(
+        output / "task2_coefficients.csv", index=False, encoding="utf-8-sig"
+    )
+    volume_tables.spearman.to_csv(
+        output / "task2_spearman_by_ticker.csv", index=False, encoding="utf-8-sig"
+    )
+    volume_tables.excluded.to_csv(
+        output / "task2_excluded.csv", index=False, encoding="utf-8-sig"
+    )
+
+    if volume_summary.n_tickers == 0:
+        logger.info("Модели объёма не оценены")
+    else:
+        logger.info(
+            "Объём: coef_A=%.4f, coef_B=%.4f, тикеров=%s, медиана Спирмена=%.4f",
+            volume_summary.coef_a,
+            volume_summary.coef_b,
+            volume_summary.n_tickers,
+            volume_summary.spearman_median,
+        )
     logger.info("Wrote results: %s", output)
 
 
