@@ -6,6 +6,7 @@ from tinvest.analytics.distribution import (
 )
 from tinvest.analytics.frames import TrendCandlesFrame
 from tinvest.analytics.trend import LinearTrend, TrendConfig, TrendSummary
+from tinvest.analytics.volume import VolumeConfig, VolumeImpact, VolumeSummary
 
 __all__ = [
     "Analysis",
@@ -16,4 +17,7 @@ __all__ = [
     "TrendCandlesFrame",
     "TrendConfig",
     "TrendSummary",
+    "VolumeConfig",
+    "VolumeImpact",
+    "VolumeSummary",
 ]
