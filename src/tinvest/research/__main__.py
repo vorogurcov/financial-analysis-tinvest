@@ -1,4 +1,4 @@
-"""Collect the research universe and run distribution, volume, then correlation."""
+"""Collect the research universe and run distribution, volume, correlation, hypotheses."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from tinvest.analytics.correlation import CorrelationConfig, ReturnCorrelation
 from tinvest.analytics.distribution import DistributionConfig, ReturnDistribution
+from tinvest.analytics.hypotheses import HypothesisConfig, ReturnHypotheses
 from tinvest.analytics.volume import VolumeConfig, VolumeImpact
 from tinvest.common.paths import project_root
 from tinvest.research.config import load_research_settings
@@ -145,6 +146,31 @@ def main() -> None:
         ),
         corr_summary.n_pairs,
     )
+
+    hypotheses = ReturnHypotheses(
+        HypothesisConfig(
+            acf_path=figures / "task4_acf.png",
+            reject_share_path=figures / "task4_reject_share.png",
+            weekday_path=figures / "task4_weekday.png",
+        )
+    )
+    hypotheses.prepare(panel)
+    hyp_tables = hypotheses.analyze()
+    hyp_summaries = hypotheses.get_summary()
+    hypotheses.plot()
+
+    hyp_tables.tests.to_csv(output / "task4_tests.csv", index=False, encoding="utf-8-sig")
+    hyp_tables.summary.to_csv(output / "task4_summary.csv", index=False, encoding="utf-8-sig")
+
+    for item in hyp_summaries:
+        logger.info(
+            "%s, n=%s, median_p=%s, reject_share=%s",
+            item.test,
+            item.n,
+            f"{item.median_p:.4f}" if item.median_p is not None else "nan",
+            f"{item.reject_share:.4f}" if item.reject_share is not None else "nan",
+        )
+
     logger.info("Wrote results: %s", output)
 
 
