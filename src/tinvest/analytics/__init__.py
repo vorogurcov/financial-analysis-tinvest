@@ -9,13 +9,11 @@ from tinvest.analytics.distribution import (
     DistributionSummary,
     ReturnDistribution,
 )
-from tinvest.analytics.frames import TrendCandlesFrame
 from tinvest.analytics.hypotheses import (
     HypothesisConfig,
     HypothesisSummary,
     ReturnHypotheses,
 )
-from tinvest.analytics.trend import LinearTrend, TrendConfig, TrendSummary
 from tinvest.analytics.vol_forecast import (
     VolForecastConfig,
     VolForecastSummary,
@@ -31,13 +29,9 @@ __all__ = [
     "DistributionSummary",
     "HypothesisConfig",
     "HypothesisSummary",
-    "LinearTrend",
     "ReturnCorrelation",
     "ReturnDistribution",
     "ReturnHypotheses",
-    "TrendCandlesFrame",
-    "TrendConfig",
-    "TrendSummary",
     "VolForecastConfig",
     "VolForecastSummary",
     "VolatilityForecast",

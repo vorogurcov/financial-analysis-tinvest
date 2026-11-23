@@ -1,4 +1,4 @@
-"""Project and results path helpers shared by pipeline and research."""
+"""Project and results path helpers."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ SPB = ZoneInfo("Europe/Moscow")
 def project_root() -> Path:
     here = Path(__file__).resolve()
     for parent in here.parents:
-        if (parent / "pyproject.toml").is_file() and (parent / "notebooks").is_dir():
+        if (parent / "pyproject.toml").is_file() and (parent / "src" / "tinvest").is_dir():
             return parent
     return Path.cwd()
 
