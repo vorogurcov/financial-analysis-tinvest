@@ -78,6 +78,30 @@ class CorrelationRegressionFrame(TypedFrame):
     note: str
 
 
+class CompareDailyFrame(TypedFrame):
+    """Stock and market log returns on days where both are present."""
+
+    time: datetime
+    stock_return: float
+    market_return: float
+
+
+class CompareRollingFrame(TypedFrame):
+    """Rolling Pearson correlation and OLS beta of one stock on the market."""
+
+    time: datetime
+    corr: float
+    beta: float
+
+
+class CompareCumulativeFrame(TypedFrame):
+    """Cumulative log returns of one stock and the market on common days."""
+
+    time: datetime
+    stock_cum: float
+    market_cum: float
+
+
 @dataclass(frozen=True)
 class CorrelationConfig:
     """Windows, floors, and figure destinations for the correlation analysis."""
@@ -92,6 +116,10 @@ class CorrelationConfig:
     heatmap_path: Path | None = None
     rolling_path: Path | None = None
     regimes_path: Path | None = None
+    ticker: str | None = None
+    compare_scatter_path: Path | None = None
+    compare_cumulative_path: Path | None = None
+    compare_rolling_path: Path | None = None
 
     def __post_init__(self) -> None:
         if self.min_overlap < 2:
@@ -106,10 +134,40 @@ class CorrelationConfig:
             raise ValueError("min_stress_days must be at least 1")
         if self.min_regression_rows < 1:
             raise ValueError("min_regression_rows must be at least 1")
-        for name in ("heatmap_path", "rolling_path", "regimes_path"):
+        raw_ticker = self.ticker.strip().upper() if isinstance(self.ticker, str) else ""
+        object.__setattr__(self, "ticker", raw_ticker or None)
+        for name in (
+            "heatmap_path",
+            "rolling_path",
+            "regimes_path",
+            "compare_scatter_path",
+            "compare_cumulative_path",
+            "compare_rolling_path",
+        ):
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, Path(value))
+
+
+@dataclass(frozen=True)
+class CompareSummary:
+    """One stock measured against the equal-weight market."""
+
+    ticker: str
+    n_overlap: int
+    pearson: float | None
+    spearman: float | None
+    alpha: float | None
+    beta: float | None
+    beta_std_err: float | None
+    beta_p_value: float | None
+    r_squared: float | None
+    resid_vol: float | None
+    beta_low_vol: float | None
+    beta_mid_vol: float | None
+    beta_high_vol: float | None
+    beta_stress: float | None
+    note: str
 
 
 @dataclass(frozen=True)
@@ -122,6 +180,7 @@ class CorrelationSummary:
     mean_pair_corr_low_vol: float | None
     mean_pair_corr_high_vol: float | None
     n_pairs: int
+    compare: CompareSummary | None = None
 
 
 @dataclass(frozen=True)
@@ -133,6 +192,9 @@ class CorrelationTables:
     regimes: CorrelationRegimesFrame
     sector_corr: CorrelationSectorFrame
     regression: CorrelationRegressionFrame
+    compare_daily: CompareDailyFrame
+    compare_rolling: CompareRollingFrame
+    compare_cumulative: CompareCumulativeFrame
 
 
 class ReturnCorrelation(Analysis[CorrelationTables]):
@@ -205,6 +267,17 @@ class ReturnCorrelation(Analysis[CorrelationTables]):
             rolling,
             min_rows=self.config.min_regression_rows,
         )
+        compare, compare_daily, compare_rolling, compare_cumulative = _stock_compare(
+            wide,
+            market,
+            rolling,
+            ticker=self.config.ticker,
+            min_overlap=self.config.min_overlap,
+            window=self.config.window,
+            min_returns=self.config.min_returns_in_window,
+            stress_threshold=self.config.stress_threshold,
+            min_stress_days=self.config.min_stress_days,
+        )
 
         tables = CorrelationTables(
             pairs=pairs,
@@ -212,9 +285,12 @@ class ReturnCorrelation(Analysis[CorrelationTables]):
             regimes=regimes,
             sector_corr=sector_corr,
             regression=regression,
+            compare_daily=compare_daily,
+            compare_rolling=compare_rolling,
+            compare_cumulative=compare_cumulative,
         )
         self._results = tables
-        self._summary = _build_summary(pairs, regimes, regression)
+        self._summary = _build_summary(pairs, regimes, regression, compare=compare)
         return tables
 
     def get_summary(self) -> CorrelationSummary:
@@ -227,6 +303,20 @@ class ReturnCorrelation(Analysis[CorrelationTables]):
 
         if self._results is None:
             raise RuntimeError("Call analyze() before chart_specs()")
+        compare = None if self._summary is None else self._summary.compare
+        if compare is not None and compare.note == "":
+            return correlation_charts(
+                pearson=self._pearson_matrix,
+                meta=self._ticker_meta,
+                rolling=pd.DataFrame(self._results.rolling),
+                regimes=pd.DataFrame(self._results.regimes),
+                compare_daily=pd.DataFrame(self._results.compare_daily),
+                compare_cumulative=pd.DataFrame(self._results.compare_cumulative),
+                compare_rolling=pd.DataFrame(self._results.compare_rolling),
+                compare_ticker=compare.ticker,
+                compare_alpha=compare.alpha,
+                compare_beta=compare.beta,
+            )
         return correlation_charts(
             pearson=self._pearson_matrix,
             meta=self._ticker_meta,
@@ -249,6 +339,24 @@ class ReturnCorrelation(Analysis[CorrelationTables]):
         if not joint.empty:
             bars = _plot_regime_bars(regimes)
             _save_figure(bars, self.config.regimes_path)
+
+        compare = None if self._summary is None else self._summary.compare
+        if compare is not None and compare.note == "":
+            daily = pd.DataFrame(self._results.compare_daily)
+            cumulative = pd.DataFrame(self._results.compare_cumulative)
+            compare_rolling = pd.DataFrame(self._results.compare_rolling)
+            _save_figure(
+                _plot_compare_scatter(daily, compare.ticker, compare.alpha, compare.beta),
+                self.config.compare_scatter_path,
+            )
+            _save_figure(
+                _plot_compare_cumulative(cumulative, compare.ticker),
+                self.config.compare_cumulative_path,
+            )
+            _save_figure(
+                _plot_compare_rolling(compare_rolling, compare.ticker),
+                self.config.compare_rolling_path,
+            )
 
         return heat
 
@@ -605,6 +713,8 @@ def _build_summary(
     pairs: CorrelationPairsFrame,
     regimes: CorrelationRegimesFrame,
     regression: CorrelationRegressionFrame,
+    *,
+    compare: CompareSummary | None = None,
 ) -> CorrelationSummary:
     pair_df = pd.DataFrame(pairs)
     n_pairs = int(len(pair_df))
@@ -640,7 +750,267 @@ def _build_summary(
         mean_pair_corr_low_vol=mean_low,
         mean_pair_corr_high_vol=mean_high,
         n_pairs=n_pairs,
+        compare=compare,
     )
+
+
+def _blank_compare() -> tuple[CompareDailyFrame, CompareRollingFrame, CompareCumulativeFrame]:
+    return (
+        CompareDailyFrame.blank(),
+        CompareRollingFrame.blank(),
+        CompareCumulativeFrame.blank(),
+    )
+
+
+def _empty_compare(ticker: str, *, n_overlap: int, note: str) -> CompareSummary:
+    return CompareSummary(
+        ticker=ticker,
+        n_overlap=n_overlap,
+        pearson=None,
+        spearman=None,
+        alpha=None,
+        beta=None,
+        beta_std_err=None,
+        beta_p_value=None,
+        r_squared=None,
+        resid_vol=None,
+        beta_low_vol=None,
+        beta_mid_vol=None,
+        beta_high_vol=None,
+        beta_stress=None,
+        note=note,
+    )
+
+
+def _finite(value: float) -> float | None:
+    if not np.isfinite(value):
+        return None
+    return float(value)
+
+
+def _market_return_series(market: MarketFrame) -> pd.Series:
+    frame = pd.DataFrame(market).copy()
+    frame["time"] = pd.to_datetime(frame["time"], utc=True)
+    return frame.set_index("time")["market_return"].astype(float)
+
+
+def _hac_maxlags(n_obs: int) -> int:
+    return min(_HAC_MAXLAGS, max(n_obs - 2, 1))
+
+
+def _hac_stock_on_market(stock: np.ndarray, market: np.ndarray) -> dict[str, float | None]:
+    empty: dict[str, float | None] = {
+        "alpha": None,
+        "beta": None,
+        "beta_std_err": None,
+        "beta_p_value": None,
+        "r_squared": None,
+        "resid_vol": None,
+    }
+    n_obs = int(len(stock))
+    if n_obs < 3:
+        return empty
+    if float(np.std(stock, ddof=1)) == 0.0 or float(np.std(market, ddof=1)) == 0.0:
+        return empty
+    y = np.asarray(stock, dtype=float)
+    x = sm.add_constant(np.asarray(market, dtype=float), has_constant="add")
+    model = sm.OLS(y, x).fit(cov_type="HAC", cov_kwds={"maxlags": _hac_maxlags(n_obs)})
+    resid = np.asarray(model.resid, dtype=float)
+    return {
+        "alpha": float(model.params[0]),
+        "beta": float(model.params[1]),
+        "beta_std_err": float(model.bse[1]),
+        "beta_p_value": float(model.pvalues[1]),
+        "r_squared": float(model.rsquared),
+        "resid_vol": float(np.std(resid, ddof=1) * _SQRT_252),
+    }
+
+
+def _corr_pair(stock: np.ndarray, market: np.ndarray) -> tuple[float | None, float | None]:
+    if len(stock) < 3:
+        return None, None
+    if float(np.std(stock, ddof=1)) == 0.0 or float(np.std(market, ddof=1)) == 0.0:
+        return None, None
+    pearson = float(np.corrcoef(stock, market)[0, 1])
+    spearman = float(stats.spearmanr(stock, market).statistic)
+    return _finite(pearson), _finite(spearman)
+
+
+def _rolling_stock_beta(
+    stock: pd.Series,
+    market: pd.Series,
+    *,
+    window: int,
+    min_returns: int,
+) -> CompareRollingFrame:
+    dates = list(stock.index)
+    if len(dates) < window:
+        return CompareRollingFrame.blank()
+
+    stock_values = stock.to_numpy(dtype=float)
+    market_values = market.reindex(stock.index).to_numpy(dtype=float)
+    rows: list[dict[str, object]] = []
+    for end in range(window - 1, len(dates)):
+        start = end - window + 1
+        stock_window = stock_values[start : end + 1]
+        market_window = market_values[start : end + 1]
+        mask = np.isfinite(stock_window) & np.isfinite(market_window)
+        if int(mask.sum()) < min_returns:
+            corr = float("nan")
+            beta = float("nan")
+        else:
+            stock_obs = stock_window[mask]
+            market_obs = market_window[mask]
+            if float(np.std(stock_obs, ddof=1)) == 0.0 or float(np.std(market_obs, ddof=1)) == 0.0:
+                corr = float("nan")
+                beta = float("nan")
+            else:
+                corr = float(np.corrcoef(stock_obs, market_obs)[0, 1])
+                covariance = float(np.cov(stock_obs, market_obs, ddof=1)[0, 1])
+                variance = float(np.var(market_obs, ddof=1))
+                beta = covariance / variance if variance != 0.0 else float("nan")
+        rows.append({"time": dates[end], "corr": corr, "beta": beta})
+
+    out = pd.DataFrame(rows)
+    out["time"] = pd.to_datetime(out["time"], utc=True)
+    out["corr"] = out["corr"].astype("float64")
+    out["beta"] = out["beta"].astype("float64")
+    return CompareRollingFrame.build(out)
+
+
+def _regime_betas(
+    compare_rolling: CompareRollingFrame,
+    market_rolling: CorrelationRollingFrame,
+) -> dict[str, float | None]:
+    result = {"beta_low_vol": None, "beta_mid_vol": None, "beta_high_vol": None}
+    market_df = pd.DataFrame(market_rolling)
+    beta_df = pd.DataFrame(compare_rolling)
+    if market_df.empty or beta_df.empty:
+        return result
+    joint = market_df.dropna(subset=["pair_corr", "market_rv"]).copy()
+    if joint.empty:
+        return result
+    q1 = float(joint["market_rv"].quantile(1.0 / 3.0))
+    q2 = float(joint["market_rv"].quantile(2.0 / 3.0))
+    merged = joint.merge(beta_df[["time", "beta"]], on="time", how="left")
+    masks = {
+        "beta_low_vol": merged["market_rv"] <= q1,
+        "beta_mid_vol": (merged["market_rv"] > q1) & (merged["market_rv"] <= q2),
+        "beta_high_vol": merged["market_rv"] > q2,
+    }
+    for key, mask in masks.items():
+        values = merged.loc[mask, "beta"].dropna()
+        result[key] = float(values.mean()) if len(values) else None
+    return result
+
+
+def _stress_beta(
+    aligned: pd.DataFrame,
+    market: MarketFrame,
+    *,
+    stress_threshold: float,
+    min_stress_days: int,
+) -> float | None:
+    market_df = pd.DataFrame(market).copy()
+    market_df["time"] = pd.to_datetime(market_df["time"], utc=True)
+    stress_times = pd.to_datetime(
+        market_df.loc[market_df["market_return"] <= stress_threshold, "time"],
+        utc=True,
+    )
+    if int(len(stress_times)) < min_stress_days:
+        return None
+    aligned_time = pd.to_datetime(aligned["time"], utc=True)
+    chunk = aligned.loc[aligned_time.isin(stress_times)]
+    fit = _hac_stock_on_market(
+        chunk["stock_return"].to_numpy(dtype=float),
+        chunk["market_return"].to_numpy(dtype=float),
+    )
+    return fit["beta"]
+
+
+def _stock_compare(
+    wide: pd.DataFrame,
+    market: MarketFrame,
+    market_rolling: CorrelationRollingFrame,
+    *,
+    ticker: str | None,
+    min_overlap: int,
+    window: int,
+    min_returns: int,
+    stress_threshold: float,
+    min_stress_days: int,
+) -> tuple[CompareSummary | None, CompareDailyFrame, CompareRollingFrame, CompareCumulativeFrame]:
+    blank_daily, blank_rolling, blank_cumulative = _blank_compare()
+    if ticker is None:
+        return None, blank_daily, blank_rolling, blank_cumulative
+
+    columns = [str(name) for name in wide.columns]
+    if ticker not in columns:
+        summary = _empty_compare(ticker, n_overlap=0, note="ticker_not_in_panel")
+        return summary, blank_daily, blank_rolling, blank_cumulative
+
+    stock = wide[ticker].astype(float)
+    stock.index = pd.to_datetime(stock.index, utc=True)
+    market_series = _market_return_series(market)
+    aligned = pd.concat(
+        [stock.rename("stock_return"), market_series.rename("market_return")],
+        axis=1,
+        join="inner",
+    ).dropna()
+    aligned.index.name = "time"
+    n_overlap = int(len(aligned))
+    if n_overlap < min_overlap:
+        summary = _empty_compare(ticker, n_overlap=n_overlap, note="too_few_overlap")
+        return summary, blank_daily, blank_rolling, blank_cumulative
+
+    daily_out = aligned.reset_index()
+    daily_out["time"] = pd.to_datetime(daily_out["time"], utc=True)
+    daily_out["stock_return"] = daily_out["stock_return"].astype("float64")
+    daily_out["market_return"] = daily_out["market_return"].astype("float64")
+    daily = CompareDailyFrame.build(daily_out[["time", "stock_return", "market_return"]])
+
+    cumulative_out = daily_out.copy()
+    cumulative_out["stock_cum"] = cumulative_out["stock_return"].cumsum().astype("float64")
+    cumulative_out["market_cum"] = cumulative_out["market_return"].cumsum().astype("float64")
+    cumulative = CompareCumulativeFrame.build(
+        cumulative_out[["time", "stock_cum", "market_cum"]]
+    )
+
+    stock_values = daily_out["stock_return"].to_numpy(dtype=float)
+    market_values = daily_out["market_return"].to_numpy(dtype=float)
+    pearson, spearman = _corr_pair(stock_values, market_values)
+    fit = _hac_stock_on_market(stock_values, market_values)
+    compare_rolling = _rolling_stock_beta(
+        stock,
+        market_series,
+        window=window,
+        min_returns=min_returns,
+    )
+    regime_betas = _regime_betas(compare_rolling, market_rolling)
+    stress_beta = _stress_beta(
+        daily_out,
+        market,
+        stress_threshold=stress_threshold,
+        min_stress_days=min_stress_days,
+    )
+    summary = CompareSummary(
+        ticker=ticker,
+        n_overlap=n_overlap,
+        pearson=pearson,
+        spearman=spearman,
+        alpha=fit["alpha"],
+        beta=fit["beta"],
+        beta_std_err=fit["beta_std_err"],
+        beta_p_value=fit["beta_p_value"],
+        r_squared=fit["r_squared"],
+        resid_vol=fit["resid_vol"],
+        beta_low_vol=regime_betas["beta_low_vol"],
+        beta_mid_vol=regime_betas["beta_mid_vol"],
+        beta_high_vol=regime_betas["beta_high_vol"],
+        beta_stress=stress_beta,
+        note="",
+    )
+    return summary, daily, compare_rolling, cumulative
 
 
 def _save_figure(fig: Figure, path: Path | None) -> None:
@@ -713,5 +1083,78 @@ def _plot_regime_bars(regimes: pd.DataFrame) -> Figure:
     ax.set_title("Средняя попарная корреляция по терцилям рыночной RV")
     ax.set_ylabel("Средняя pair_corr")
     ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def _plot_compare_scatter(
+    daily: pd.DataFrame,
+    ticker: str,
+    alpha: float | None,
+    beta: float | None,
+) -> Figure:
+    fig, ax = plt.subplots(figsize=(8, 6))
+    if daily.empty:
+        ax.set_axis_off()
+        return fig
+    market = daily["market_return"].to_numpy(dtype=float)
+    stock = daily["stock_return"].to_numpy(dtype=float)
+    ax.scatter(market, stock, s=12, alpha=0.7, color="steelblue", label=ticker)
+    if alpha is not None and beta is not None and len(market) > 0:
+        x0 = float(np.min(market))
+        x1 = float(np.max(market))
+        ax.plot(
+            [x0, x1],
+            [alpha + beta * x0, alpha + beta * x1],
+            color="black",
+            linewidth=1.5,
+            label="Регрессия",
+        )
+    ax.set_xlabel("Доходность рынка")
+    ax.set_ylabel(f"Доходность {ticker}")
+    ax.set_title(f"Дневные доходности: {ticker} и рынок")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    return fig
+
+
+def _plot_compare_cumulative(cumulative: pd.DataFrame, ticker: str) -> Figure:
+    fig, ax = plt.subplots(figsize=(12, 5))
+    if cumulative.empty:
+        ax.set_axis_off()
+        return fig
+    times = pd.to_datetime(cumulative["time"], utc=True)
+    ax.plot(times, cumulative["stock_cum"], color="steelblue", label=ticker)
+    ax.plot(times, cumulative["market_cum"], color="darkorange", label="Рынок")
+    ax.set_xlabel("Дата")
+    ax.set_ylabel("Накопленная лог-доходность")
+    ax.set_title(f"Накопленная лог-доходность: {ticker} и рынок")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    return fig
+
+
+def _plot_compare_rolling(rolling: pd.DataFrame, ticker: str) -> Figure:
+    fig, ax1 = plt.subplots(figsize=(12, 5))
+    if rolling.empty:
+        ax1.set_axis_off()
+        return fig
+    times = pd.to_datetime(rolling["time"], utc=True)
+    ax1.plot(times, rolling["corr"], color="steelblue", label="Корреляция")
+    ax1.set_xlabel("Дата")
+    ax1.set_ylabel("Корреляция", color="steelblue")
+    ax1.tick_params(axis="y", labelcolor="steelblue")
+
+    ax2 = ax1.twinx()
+    ax2.plot(times, rolling["beta"], color="darkorange", label="Бета")
+    ax2.set_ylabel("Бета", color="darkorange")
+    ax2.tick_params(axis="y", labelcolor="darkorange")
+
+    ax1.set_title(f"Скользящие корреляция и бета: {ticker}")
+    ax1.grid(True, alpha=0.3)
+    fig.autofmt_xdate()
     fig.tight_layout()
     return fig

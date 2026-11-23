@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+import pandas as pd
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,7 @@ from pydantic import BaseModel, Field
 from tinvest.api.catalog import get_experiment, list_experiments
 from tinvest.api.runs import run_manager
 from tinvest.common.paths import project_root
+from tinvest.research.universe import read_universe, universe_path
 
 
 class RunRequest(BaseModel):
@@ -49,6 +51,25 @@ def create_app() -> FastAPI:
     @app.get("/api/experiments")
     def experiments() -> list[dict[str, Any]]:
         return list_experiments()
+
+    @app.get("/api/tickers")
+    def tickers() -> list[dict[str, str]]:
+        path = universe_path(project_root())
+        if not path.is_file():
+            return []
+        universe = pd.DataFrame(read_universe(project_root()))
+        included = universe.loc[universe["included"].astype(bool)].sort_values(
+            "ticker",
+            kind="mergesort",
+        )
+        return [
+            {
+                "ticker": str(row.ticker),
+                "name": str(row.name),
+                "sector": str(row.sector),
+            }
+            for row in included.itertuples(index=False)
+        ]
 
     @app.post("/api/runs")
     def start_run(body: RunRequest) -> dict[str, str]:

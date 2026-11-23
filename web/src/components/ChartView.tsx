@@ -167,6 +167,26 @@ function histogramOption(chart: ChartSpec): EChartsOption {
 }
 
 function scatterOption(chart: ChartSpec): EChartsOption {
+  const ref = chart.reference_line ?? []
+  const points = (chart.series ?? []).map((item) => ({
+    name: item.name,
+    type: 'scatter' as const,
+    symbolSize: 8,
+    data: (item.x ?? []).map((x, i) => [x, item.values[i] ?? null]),
+  }))
+  const line =
+    ref.length >= 2
+      ? [
+          {
+            name: 'Регрессия',
+            type: 'line' as const,
+            showSymbol: false,
+            data: ref.map((point) => [point.x, point.y]),
+            lineStyle: { color: '#111', width: 2 },
+            z: 2,
+          },
+        ]
+      : []
   return {
     title: { text: chart.title, left: 'center' },
     tooltip: { trigger: 'item' },
@@ -174,12 +194,7 @@ function scatterOption(chart: ChartSpec): EChartsOption {
     grid: { left: 56, right: 28, top: 72, bottom: 48 },
     xAxis: { type: 'value', name: chart.x_label ?? undefined, scale: true },
     yAxis: { type: 'value', name: chart.y_label ?? undefined, scale: true },
-    series: (chart.series ?? []).map((item) => ({
-      name: item.name,
-      type: 'scatter',
-      symbolSize: 8,
-      data: (item.x ?? []).map((x, i) => [x, item.values[i] ?? null]),
-    })),
+    series: [...points, ...line],
   }
 }
 

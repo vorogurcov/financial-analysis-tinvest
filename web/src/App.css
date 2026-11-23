@@ -164,6 +164,26 @@
   font-weight: 600;
 }
 
+.summary-nested {
+  margin-top: 1rem;
+}
+
+.summary-nested h3 {
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+}
+
+.compare-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.compare-toggle {
+  padding-top: 0;
+}
+
 .summary-table-wrap {
   overflow-x: auto;
 }

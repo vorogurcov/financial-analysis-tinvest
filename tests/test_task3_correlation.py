@@ -13,6 +13,8 @@ from tinvest.analytics.correlation import (
     CorrelationConfig,
     ReturnCorrelation,
 )
+from tinvest.research.__main__ import _write_compare_outputs
+from tinvest.research.config import load_research_settings
 from tinvest.research.panel import MarketFrame, PanelFrame
 
 
@@ -254,6 +256,155 @@ def test_too_few_windows_skips_coefficients(tmp_path: Path) -> None:
     assert reg.iloc[0]["note"] == "too_few_windows"
     assert pd.isna(reg.iloc[0]["coef"])
     assert reg.iloc[0]["cov"] == ""
+
+
+def _liquid_panel(n: int = 180, names: int = 22):
+    rng = np.random.default_rng(1)
+    market_return = rng.normal(0.0, 0.01, size=n)
+    stock = market_return + rng.normal(0.0, 0.0005, size=n)
+    returns = {f"T{i:02d}": rng.normal(0.0, 0.01, size=n) for i in range(names)}
+    returns["SBER"] = stock
+    times = _trading_days(n)
+    panel = _panel_from_returns(returns)
+    market = _market_from_returns(times, market_return)
+    return panel, market, market_return
+
+
+def test_compare_beta_near_one(tmp_path: Path) -> None:
+    panel, market, _market_return = _liquid_panel()
+    figures = tmp_path / "figures"
+    analysis = _analysis(
+        panel,
+        market,
+        tmp_path,
+        ticker="sber",
+        compare_scatter_path=figures / "task3_compare_scatter.png",
+        compare_cumulative_path=figures / "task3_compare_cumulative.png",
+        compare_rolling_path=figures / "task3_compare_rolling.png",
+    )
+    tables = analysis.analyze()
+    compare = analysis.get_summary().compare
+    assert compare is not None
+    assert compare.ticker == "SBER"
+    assert compare.note == ""
+    assert compare.beta is not None
+    assert abs(compare.beta - 1.0) < 0.15
+    assert compare.pearson is not None
+    assert compare.pearson > 0.9
+    assert any(
+        value is not None
+        for value in (compare.beta_low_vol, compare.beta_mid_vol, compare.beta_high_vol)
+    )
+    assert compare.r_squared is not None
+    assert compare.resid_vol is not None
+    assert len(tables.compare_daily) == 180
+    assert len(tables.compare_cumulative) == 180
+    assert not tables.compare_rolling.empty
+
+    charts = analysis.chart_specs()
+    assert len(charts) == 6
+    assert [chart.id for chart in charts[-3:]] == [
+        "compare_scatter",
+        "compare_cumulative",
+        "compare_rolling",
+    ]
+    line = charts[-3].reference_line
+    assert line is not None and len(line) == 2
+    span = line[1]["x"] - line[0]["x"]
+    assert span != 0
+    assert abs((line[1]["y"] - line[0]["y"]) / span - compare.beta) < 1e-9
+
+    analysis.plot()
+    assert (figures / "task3_compare_scatter.png").is_file()
+    assert (figures / "task3_compare_cumulative.png").is_file()
+    assert (figures / "task3_compare_rolling.png").is_file()
+
+    _write_compare_outputs(tmp_path, tables, analysis.get_summary())
+    summary_csv = pd.read_csv(tmp_path / "task3_compare.csv", keep_default_na=False)
+    assert summary_csv.loc[0, "ticker"] == "SBER"
+    assert summary_csv.loc[0, "note"] == ""
+    assert pd.read_csv(tmp_path / "task3_compare_rolling.csv")["beta"].notna().any()
+    assert "stock_cum" in pd.read_csv(tmp_path / "task3_compare_cumulative.csv").columns
+
+
+def test_compare_unknown_ticker_keeps_base_charts(tmp_path: Path) -> None:
+    panel, market, _market_return = _liquid_panel(n=80, names=8)
+    baseline = _analysis(
+        panel,
+        market,
+        tmp_path / "off",
+        min_overlap=20,
+        window=21,
+        min_names_in_window=4,
+        min_returns_in_window=10,
+        min_regression_rows=10,
+        min_stress_days=5,
+    )
+    baseline.analyze()
+    missing = _analysis(
+        panel,
+        market,
+        tmp_path / "missing",
+        ticker="NOPE",
+        min_overlap=20,
+        window=21,
+        min_names_in_window=4,
+        min_returns_in_window=10,
+        min_regression_rows=10,
+        min_stress_days=5,
+    )
+    missing.analyze()
+    compare = missing.get_summary().compare
+    assert compare is not None
+    assert compare.note == "ticker_not_in_panel"
+    assert compare.pearson is None
+    assert compare.beta is None
+    assert [chart.id for chart in missing.chart_specs()] == [
+        chart.id for chart in baseline.chart_specs()
+    ]
+    assert all(not chart.id.startswith("compare_") for chart in missing.chart_specs())
+    out_dir = tmp_path / "missing"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_compare_outputs(out_dir, missing.get_results(), missing.get_summary())
+    saved = pd.read_csv(out_dir / "task3_compare.csv")
+    assert saved.loc[0, "note"] == "ticker_not_in_panel"
+    assert not (out_dir / "task3_compare_rolling.csv").exists()
+    assert not (out_dir / "task3_compare_cumulative.csv").exists()
+
+
+def test_compare_mode_off(tmp_path: Path) -> None:
+    panel, market, _market_return = _liquid_panel(n=80, names=5)
+    analysis = _analysis(
+        panel,
+        market,
+        tmp_path,
+        ticker="   ",
+        min_overlap=20,
+        window=21,
+        min_names_in_window=3,
+        min_returns_in_window=10,
+        min_regression_rows=10,
+    )
+    tables = analysis.analyze()
+    assert analysis.config.ticker is None
+    assert analysis.get_summary().compare is None
+    assert tables.compare_daily.empty
+    assert tables.compare_rolling.empty
+    assert tables.compare_cumulative.empty
+    assert all(not chart.id.startswith("compare_") for chart in analysis.chart_specs())
+    assert CorrelationConfig(ticker=" gazp ").ticker == "GAZP"
+
+
+def test_load_research_settings_compare_ticker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env_path = tmp_path / "missing.env"
+    monkeypatch.setenv("TINVEST_RESEARCH_COMPARE_TICKER", " sber ")
+    assert load_research_settings(env_path).compare_ticker == "SBER"
+
+    monkeypatch.setenv("TINVEST_RESEARCH_COMPARE_TICKER", "  ")
+    assert load_research_settings(env_path).compare_ticker is None
+
+    monkeypatch.delenv("TINVEST_RESEARCH_COMPARE_TICKER", raising=False)
+    assert load_research_settings(env_path).compare_ticker is None
 
 
 def test_empty_panel_raises(tmp_path: Path) -> None:

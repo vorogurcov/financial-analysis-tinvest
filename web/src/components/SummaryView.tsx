@@ -3,6 +3,14 @@ interface SummaryViewProps {
   message?: string | null
 }
 
+const NESTED_TITLES: Record<string, string> = {
+  compare: 'Сравнение',
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 function formatValue(value: unknown): string {
   if (value == null) return '—'
   if (typeof value === 'number') {
@@ -11,6 +19,19 @@ function formatValue(value: unknown): string {
   }
   if (typeof value === 'boolean') return value ? 'да' : 'нет'
   return String(value)
+}
+
+function SummaryGrid({ data }: { data: Record<string, unknown> }) {
+  return (
+    <dl className="summary-grid">
+      {Object.entries(data).map(([key, value]) => (
+        <div key={key} className="summary-item">
+          <dt>{key}</dt>
+          <dd>{formatValue(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  )
 }
 
 export function SummaryView({ summary, message }: SummaryViewProps) {
@@ -44,14 +65,19 @@ export function SummaryView({ summary, message }: SummaryViewProps) {
     )
   }
 
+  const entries = Object.entries(summary)
+  const flat = Object.fromEntries(entries.filter(([, value]) => !isRecord(value)))
+  const nested = entries.filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]))
+
   return (
-    <dl className="summary-grid">
-      {Object.entries(summary).map(([key, value]) => (
-        <div key={key} className="summary-item">
-          <dt>{key}</dt>
-          <dd>{formatValue(value)}</dd>
+    <>
+      {Object.keys(flat).length > 0 && <SummaryGrid data={flat} />}
+      {nested.map(([key, value]) => (
+        <div key={key} className="summary-nested">
+          <h3>{NESTED_TITLES[key] ?? key}</h3>
+          <SummaryGrid data={value} />
         </div>
       ))}
-    </dl>
+    </>
   )
 }

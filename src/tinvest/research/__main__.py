@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import asdict
 from pathlib import Path
+
+import pandas as pd
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -14,7 +17,12 @@ matplotlib.use("Agg", force=True)
 
 from dotenv import load_dotenv
 
-from tinvest.analytics.correlation import CorrelationConfig, ReturnCorrelation
+from tinvest.analytics.correlation import (
+    CorrelationConfig,
+    CorrelationSummary,
+    CorrelationTables,
+    ReturnCorrelation,
+)
 from tinvest.analytics.distribution import DistributionConfig, ReturnDistribution
 from tinvest.analytics.hypotheses import HypothesisConfig, ReturnHypotheses
 from tinvest.analytics.vol_forecast import VolForecastConfig, VolatilityForecast
@@ -114,6 +122,10 @@ def main() -> None:
             heatmap_path=figures / "task3_corr_heatmap.png",
             rolling_path=figures / "task3_rolling_corr.png",
             regimes_path=figures / "task3_regime_bars.png",
+            ticker=settings.compare_ticker,
+            compare_scatter_path=figures / "task3_compare_scatter.png",
+            compare_cumulative_path=figures / "task3_compare_cumulative.png",
+            compare_rolling_path=figures / "task3_compare_rolling.png",
         )
     )
     correlation.prepare(panel, market)
@@ -130,6 +142,7 @@ def main() -> None:
     corr_tables.regression.to_csv(
         output / "task3_corr_on_vol.csv", index=False, encoding="utf-8-sig"
     )
+    _write_compare_outputs(output, corr_tables, corr_summary)
 
     logger.info(
         "Корреляции: средняя попарная=%.4f, b=%.4f, pair_corr low/high=%.4f/%.4f, пар=%s",
@@ -147,6 +160,15 @@ def main() -> None:
         ),
         corr_summary.n_pairs,
     )
+    compare = corr_summary.compare
+    if compare is not None:
+        logger.info(
+            "Сравнение %s: бета=%s, Пирсон=%s, note=%s",
+            compare.ticker,
+            f"{compare.beta:.4f}" if compare.beta is not None else "nan",
+            f"{compare.pearson:.4f}" if compare.pearson is not None else "nan",
+            compare.note if compare.note else "—",
+        )
 
     hypotheses = ReturnHypotheses(
         HypothesisConfig(
@@ -213,6 +235,29 @@ def main() -> None:
             )
 
     logger.info("Wrote results: %s", output)
+
+
+def _write_compare_outputs(
+    output: Path,
+    tables: CorrelationTables,
+    summary: CorrelationSummary,
+) -> None:
+    compare = summary.compare
+    if compare is None:
+        return
+    row = asdict(compare)
+    for key, value in row.items():
+        if value is None:
+            row[key] = float("nan")
+    pd.DataFrame([row]).to_csv(output / "task3_compare.csv", index=False, encoding="utf-8-sig")
+    if compare.note != "":
+        return
+    pd.DataFrame(tables.compare_rolling).to_csv(
+        output / "task3_compare_rolling.csv", index=False, encoding="utf-8-sig"
+    )
+    pd.DataFrame(tables.compare_cumulative).to_csv(
+        output / "task3_compare_cumulative.csv", index=False, encoding="utf-8-sig"
+    )
 
 
 if __name__ == "__main__":

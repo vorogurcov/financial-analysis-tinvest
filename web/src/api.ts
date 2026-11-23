@@ -18,8 +18,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+export interface TickerOption {
+  ticker: string
+  name: string
+  sector: string
+}
+
 export function fetchExperiments(): Promise<ExperimentMeta[]> {
   return request('/api/experiments')
+}
+
+export function fetchTickers(): Promise<TickerOption[]> {
+  return request('/api/tickers')
 }
 
 export function startRun(body: {

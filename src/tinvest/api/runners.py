@@ -96,6 +96,16 @@ def _run_volume(*, bundle: SampleBundle, params: dict[str, Any]) -> dict[str, An
     }
 
 
+def _compare_ticker(params: dict[str, Any]) -> str | None:
+    if not bool(params.get("compare")):
+        return None
+    raw = params.get("ticker")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
+
+
 def _run_correlation(*, bundle: SampleBundle, params: dict[str, Any]) -> dict[str, Any]:
     analysis = ReturnCorrelation(
         CorrelationConfig(
@@ -106,6 +116,7 @@ def _run_correlation(*, bundle: SampleBundle, params: dict[str, Any]) -> dict[st
             stress_threshold=float(params.get("stress_threshold", -0.02)),
             min_stress_days=int(params.get("min_stress_days", 15)),
             min_regression_rows=int(params.get("min_regression_rows", 100)),
+            ticker=_compare_ticker(params),
         )
     )
     analysis.prepare(bundle.panel, bundle.market)

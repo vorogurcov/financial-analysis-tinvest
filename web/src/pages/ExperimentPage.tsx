@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { fetchRun, startRun } from '../api'
+import { fetchRun, fetchTickers, startRun, type TickerOption } from '../api'
 import { ChartView } from '../components/ChartView'
 import { defaultsFromFields, ParamForm } from '../components/ParamForm'
 import { SummaryView } from '../components/SummaryView'
@@ -30,6 +30,9 @@ export function ExperimentPage({ experiments, results, onResult }: ExperimentPag
   const [error, setError] = useState<string | null>(null)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [liveStatus, setLiveStatus] = useState<string | null>(null)
+  const [compareOn, setCompareOn] = useState(false)
+  const [compareTicker, setCompareTicker] = useState('')
+  const [tickerOptions, setTickerOptions] = useState<TickerOption[]>([])
 
   useEffect(() => {
     if (!experiment) return
@@ -38,7 +41,29 @@ export function ExperimentPage({ experiments, results, onResult }: ExperimentPag
     setError(null)
     setActiveRunId(null)
     setLiveStatus(null)
+    setCompareOn(false)
+    setCompareTicker('')
   }, [experiment])
+
+  useEffect(() => {
+    if (experiment?.id !== 'correlation') return
+    let cancelled = false
+    fetchTickers()
+      .then((rows) => {
+        if (cancelled) return
+        setTickerOptions(rows)
+        setCompareTicker((current) => {
+          if (current && rows.some((row) => row.ticker === current)) return current
+          return rows[0]?.ticker ?? ''
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setTickerOptions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [experiment?.id])
 
   useEffect(() => {
     if (!activeRunId || !experiment) return
@@ -89,13 +114,24 @@ export function ExperimentPage({ experiments, results, onResult }: ExperimentPag
   async function handleRun() {
     if (!experiment) return
     const current = experiment
+    const runParams: ParamMap = { ...params }
+    if (current.id === 'correlation') {
+      runParams.compare = compareOn
+      if (compareOn) {
+        if (!compareTicker) {
+          setError('Выберите акцию для сравнения')
+          return
+        }
+        runParams.ticker = compareTicker
+      }
+    }
     setError(null)
     setBusy(true)
     setLiveStatus('queued')
     try {
       const response = await startRun({
         experiment: current.id,
-        params,
+        params: runParams,
         sample,
       })
       setActiveRunId(response.run_id)
@@ -137,6 +173,38 @@ export function ExperimentPage({ experiments, results, onResult }: ExperimentPag
           onChange={(name, value) => setParams((prev) => ({ ...prev, [name]: value }))}
         />
       </section>
+
+      {experiment.id === 'correlation' && (
+        <section className="panel">
+          <h2>Режим сравнения</h2>
+          <div className="compare-row">
+            <label className="param-field checkbox compare-toggle">
+              <input
+                type="checkbox"
+                checked={compareOn}
+                disabled={busy}
+                onChange={(event) => setCompareOn(event.target.checked)}
+              />
+              <span>Включить режим сравнения</span>
+            </label>
+            <label className="param-field">
+              <span>Акция</span>
+              <select
+                value={compareTicker}
+                disabled={busy || !compareOn || tickerOptions.length === 0}
+                onChange={(event) => setCompareTicker(event.target.value)}
+              >
+                {tickerOptions.length === 0 && <option value="">Нет акций в выборке</option>}
+                {tickerOptions.map((item) => (
+                  <option key={item.ticker} value={item.ticker}>
+                    {item.ticker} — {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </section>
+      )}
 
       {statusText && <div className="banner info">{statusText}</div>}
       {error && <div className="banner error">{error}</div>}

@@ -21,6 +21,7 @@ class ResearchConfig:
     return_jump: float = 0.5
     refresh: bool = False
     output: Path = field(default_factory=default_output_dir)
+    compare_ticker: str | None = None
 
     def __post_init__(self) -> None:
         if self.lookback_days < 1:
@@ -32,6 +33,8 @@ class ResearchConfig:
         if self.return_jump <= 0:
             raise ValueError("return_jump must be positive")
         object.__setattr__(self, "output", Path(self.output))
+        raw_ticker = self.compare_ticker.strip().upper() if isinstance(self.compare_ticker, str) else ""
+        object.__setattr__(self, "compare_ticker", raw_ticker or None)
 
 
 def load_research_settings(env_path: Path | None = None) -> ResearchConfig:
@@ -42,4 +45,9 @@ def load_research_settings(env_path: Path | None = None) -> ResearchConfig:
         load_dotenv(path)
     lookback = int(os.getenv("TINVEST_RESEARCH_LOOKBACK_DAYS", "1095") or "1095")
     max_names = int(os.getenv("TINVEST_RESEARCH_MAX_NAMES", "80") or "80")
-    return ResearchConfig(lookback_days=lookback, max_names=max_names)
+    compare_ticker = os.getenv("TINVEST_RESEARCH_COMPARE_TICKER", "")
+    return ResearchConfig(
+        lookback_days=lookback,
+        max_names=max_names,
+        compare_ticker=compare_ticker,
+    )
