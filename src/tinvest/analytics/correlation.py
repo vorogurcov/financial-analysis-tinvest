@@ -15,6 +15,7 @@ import statsmodels.api as sm
 
 from tinvest.analytics.base import Analysis
 from tinvest.analytics.distribution import assign_sector_groups
+from tinvest.charts.spec import ChartSpec
 from tinvest.common.frame import TypedFrame
 from tinvest.research.panel import MarketFrame, PanelFrame
 
@@ -220,6 +221,18 @@ class ReturnCorrelation(Analysis[CorrelationTables]):
         if self._summary is None:
             raise RuntimeError("Call analyze() before get_summary()")
         return self._summary
+
+    def chart_specs(self) -> list[ChartSpec]:
+        from tinvest.charts.correlation import correlation_charts
+
+        if self._results is None:
+            raise RuntimeError("Call analyze() before chart_specs()")
+        return correlation_charts(
+            pearson=self._pearson_matrix,
+            meta=self._ticker_meta,
+            rolling=pd.DataFrame(self._results.rolling),
+            regimes=pd.DataFrame(self._results.regimes),
+        )
 
     def plot(self) -> Figure:
         if self._results is None:

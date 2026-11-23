@@ -26,6 +26,7 @@ from sklearn.preprocessing import StandardScaler
 from tinvest.analytics.base import Analysis
 from tinvest.analytics.distribution import assign_sector_groups
 from tinvest.analytics.volume import add_volume_features
+from tinvest.charts.spec import ChartSpec
 from tinvest.common.frame import TypedFrame
 from tinvest.research.panel import MarketFrame, PanelFrame
 
@@ -483,6 +484,30 @@ class VolatilityForecast(Analysis[VolForecastTables]):
         if self._summary is None:
             raise RuntimeError("Call analyze() before get_summary()")
         return self._summary
+
+    def chart_specs(self) -> list[ChartSpec]:
+        from tinvest.charts.vol_forecast import vol_forecast_charts
+
+        if self._results is None or self._summary is None:
+            raise RuntimeError("Call analyze() before chart_specs()")
+        y_true = None if self._test is None else self._test["y"].to_numpy(dtype=int)
+        return vol_forecast_charts(
+            gate_passed=self._summary.gate_passed,
+            y_true=y_true,
+            scores={
+                "rv_21": self._score_rv21,
+                "logit": self._score_logit,
+                "hgb": self._score_hgb,
+            },
+            aucs={
+                "rv_21": self._summary.auc_rv_21 or 0.0,
+                "logit": self._summary.auc_logit or 0.0,
+                "hgb": self._summary.auc_hgb or 0.0,
+            },
+            importance=pd.DataFrame(self._results.importance),
+            probability=self._p_hgb,
+            calibration=self._summary.calibration,
+        )
 
     def plot(self) -> Figure:
         if self._results is None or self._summary is None:

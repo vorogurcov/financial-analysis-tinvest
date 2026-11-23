@@ -17,6 +17,7 @@ from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
 from statsmodels.stats.multitest import multipletests
 
 from tinvest.analytics.base import Analysis
+from tinvest.charts.spec import ChartSpec
 from tinvest.common.frame import TypedFrame
 from tinvest.research.panel import PanelFrame
 
@@ -183,6 +184,20 @@ class ReturnHypotheses(Analysis[HypothesisTables]):
         if self._summaries is None:
             raise RuntimeError("Call analyze() before get_summary()")
         return list(self._summaries)
+
+    def chart_specs(self) -> list[ChartSpec]:
+        from tinvest.charts.hypotheses import hypotheses_charts
+
+        if self._results is None or self._series is None:
+            raise RuntimeError("Call analyze() before chart_specs()")
+        return hypotheses_charts(
+            self._series,
+            pd.DataFrame(self._results.tests),
+            ljung_lags=self.config.ljung_lags,
+            min_returns=self.config.min_returns,
+            min_tickers=self.config.min_tickers,
+            alpha=self.config.alpha,
+        )
 
     def plot(self) -> Figure:
         if self._results is None or self._series is None:

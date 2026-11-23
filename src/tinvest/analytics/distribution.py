@@ -13,6 +13,8 @@ from scipy import stats
 import statsmodels.formula.api as smf
 
 from tinvest.analytics.base import Analysis
+from tinvest.charts.spec import ChartSpec
+from tinvest.charts.stats import density_histogram, normal_pdf_curve, standardize_returns
 from tinvest.common.frame import TypedFrame
 from tinvest.research.panel import PanelFrame
 from tinvest.research.universe import UniverseFrame
@@ -194,6 +196,13 @@ class ReturnDistribution(Analysis[DistributionTables]):
         if self._summary is None:
             raise RuntimeError("Call analyze() before get_summary()")
         return self._summary
+
+    def chart_specs(self) -> list[ChartSpec]:
+        if self._panel is None or self._metrics is None:
+            raise RuntimeError("Call prepare() and analyze() before chart_specs()")
+        from tinvest.charts.distribution import distribution_charts
+
+        return distribution_charts(self._panel, pd.DataFrame(self._metrics))
 
     def plot(self) -> Figure:
         if self._panel is None or self._metrics is None:
@@ -504,26 +513,31 @@ def _build_summary(frame: pd.DataFrame, regression: VolRegressionFrame) -> Distr
 
 
 def _plot_return_hist(panel: PanelFrame, path: Path) -> Figure:
-    working = pd.DataFrame(panel)
-    parts: list[pd.Series] = []
-    for _, chunk in working.groupby("ticker"):
-        returns = chunk["log_return"].dropna()
-        if len(returns) < 2:
-            continue
-        std = returns.std(ddof=1)
-        if std == 0 or np.isnan(std):
-            continue
-        parts.append((returns - returns.mean()) / std)
-    if parts:
-        standardized = pd.concat(parts, ignore_index=True)
-    else:
-        standardized = pd.Series(dtype=float)
-
+    standardized = standardize_returns(pd.DataFrame(panel))
     fig, ax = plt.subplots(figsize=(10, 5))
     if not standardized.empty:
-        ax.hist(standardized, bins=60, density=True, alpha=0.65, color="steelblue", label="Данные")
-        xs = np.linspace(-4, 4, 400)
-        ax.plot(xs, stats.norm.pdf(xs), color="black", linewidth=1.5, label="N(0, 1)")
+        bins = density_histogram(standardized, bins=60)
+        if bins:
+            widths = [b.x1 - b.x0 for b in bins]
+            centers = [(b.x0 + b.x1) / 2.0 for b in bins]
+            densities = [b.density for b in bins]
+            ax.bar(
+                centers,
+                densities,
+                width=widths,
+                align="center",
+                alpha=0.65,
+                color="steelblue",
+                label="Данные",
+            )
+        curve = normal_pdf_curve()
+        ax.plot(
+            [point["x"] for point in curve],
+            [point["y"] for point in curve],
+            color="black",
+            linewidth=1.5,
+            label="N(0, 1)",
+        )
     ax.set_title("Стандартизованные дневные лог-доходности")
     ax.set_xlabel("Стандартизованная доходность")
     ax.set_ylabel("Плотность")

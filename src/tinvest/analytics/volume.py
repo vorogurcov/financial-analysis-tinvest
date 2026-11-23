@@ -14,6 +14,8 @@ from scipy import stats
 import statsmodels.formula.api as smf
 
 from tinvest.analytics.base import Analysis
+from tinvest.charts.spec import ChartSpec
+from tinvest.charts.stats import decile_means
 from tinvest.common.frame import TypedFrame
 from tinvest.research.panel import PanelFrame
 
@@ -240,6 +242,14 @@ class VolumeImpact(Analysis[VolumeTables]):
         if self._summary is None:
             raise RuntimeError("Call analyze() before get_summary()")
         return self._summary
+
+    def chart_specs(self) -> list[ChartSpec]:
+        from tinvest.charts.volume import volume_charts
+
+        summary = self.get_summary()
+        if summary.n_tickers == 0 or self._sample is None or self._results is None:
+            return []
+        return volume_charts(self._sample, pd.DataFrame(self._results.coefficients))
 
     def plot(self) -> Figure:
         summary = self.get_summary()
@@ -521,25 +531,9 @@ def _plot_decile_means(
     title: str,
     ylabel: str,
 ) -> Figure:
-    frame = sample[[x_col, y_col]].dropna().copy()
+    points = decile_means(sample, x_col=x_col, y_col=y_col)
     fig, ax = plt.subplots(figsize=(10, 5))
-    if len(frame) >= 10:
-        frame["decile"] = pd.qcut(frame[x_col], 10, labels=False, duplicates="drop") + 1
-        rows: list[dict[str, float]] = []
-        for decile, chunk in frame.groupby("decile", sort=True):
-            mean = float(chunk[y_col].mean())
-            n = int(len(chunk))
-            std = float(chunk[y_col].std(ddof=1)) if n > 1 else 0.0
-            se = std / np.sqrt(n) if n > 0 else 0.0
-            rows.append(
-                {
-                    "decile": float(decile),
-                    "mean": mean,
-                    "low": mean - 1.96 * se,
-                    "high": mean + 1.96 * se,
-                }
-            )
-        points = pd.DataFrame(rows)
+    if not points.empty:
         ax.errorbar(
             points["decile"],
             points["mean"],
